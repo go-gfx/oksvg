@@ -21,9 +21,13 @@
 * **Arc commands with several parameter sets** (`a10 10 0 0 1 5 5 8 8 0 0 1 3 3`): each set is
   its own arc. Upstream reused the first set's parameters, which drew visibly wrong shapes
   (Twemoji's 🪇, 🏔 ...).
-
-Not changed: `fill-rule` is still ignored for fills (rasterx's scanner has one winding rule);
-`clip-rule` is honoured because clips use their own rasteriser.
+* **`fill-rule`** (`nonzero`, `evenodd`; SVG 1.1 §11.3, inherited, also as a CSS property in a
+  `style` attribute). rasterx's scanner has one rule, so an `evenodd` fill takes its coverage
+  from the clip rasteriser and is composited with the same `draw.DrawMask`; `nonzero` fills take
+  the code path they always did. Gradients, opacity and clips work with it.
+* **Arc flags without separators** (`A9.564 9.564 0 0110 4.844`: flags 0 and 1, then x = 10; SVG
+  1.1 §8.3.9). Upstream read `0110` as one number, which dropped the rest of the path: GitHub's
+  octocat drew as a crescent.
 
 oksvg is a rasterizer for a partial implementation of the SVG2.0 specification in golang.
 

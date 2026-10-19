@@ -60,7 +60,9 @@ func (svgp *SvgPath) DrawTransformed(r *rasterx.Dasher, opacity float64, t raste
 			}
 			rf.SetColor(withMask(fillerColor.GetColorFunction(svgp.FillOpacity * opacity)))
 		}
-		rf.Draw()
+		if svgp.UseNonZeroWinding || !fillEvenOdd(rf.Scanner, svgp.Path, svgp.mAdder.M) {
+			rf.Draw()
+		}
 		// default is true
 		rf.SetWinding(true)
 	}

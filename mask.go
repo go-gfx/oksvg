@@ -6,6 +6,7 @@ package oksvg
 
 import (
 	"image"
+	"image/draw"
 	"math"
 
 	"github.com/srwiley/rasterx"
@@ -246,6 +247,37 @@ func (c *covRaster) coverage(evenOdd bool) []uint8 {
 	}
 	return out
 }
+
+// fillEvenOdd paints path (under m, path coordinates to device pixels) with the
+// even-odd rule, in the colour the scanner was last given (SetColor). rasterx's
+// scanner (x/image/vector) has one rule, nonzero, and no way to ask for another,
+// so the coverage comes from this file's rasteriser and goes through the same
+// compositing, draw.DrawMask, that the scanner uses. It reports false when the
+// scanner is not the one it knows how to feed: the caller then draws nonzero.
+func fillEvenOdd(sc rasterx.Scanner, path rasterx.Path, m rasterx.Matrix2D) bool {
+	s, ok := sc.(*rasterx.ScannerGV)
+	if !ok || s.Dest == nil || s.Source == nil || s.Dest.Bounds().Min != (image.Point{}) || s.Offset != (image.Point{}) {
+		return false
+	}
+	set := flatten(path, m)
+	r := set.rect().Intersect(s.Dest.Bounds())
+	if r.Empty() {
+		return true // nothing of it is on the surface
+	}
+	if r.Dx()*r.Dy() > maxMaskPixels {
+		return false
+	}
+	cov := fillCoverage(set, r, true)
+	mask := &image.Alpha{Pix: cov, Stride: r.Dx(), Rect: r}
+	draw.DrawMask(s.Dest, r, atOnly{s.Source}, r.Min, mask, r.Min, draw.Over)
+	return true
+}
+
+// atOnly hides everything but At of an image. rasterx's colour-function image
+// embeds image.Uniform, whose RGBA64At returns its constant colour: draw.DrawMask
+// uses that fast path when it finds it and would paint the colour function's
+// placeholder instead of the function.
+type atOnly struct{ image.Image }
 
 // fillCoverage rasterises a flattened set into coverage over r (its pixel
 // box, already limited by the caller).
