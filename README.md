@@ -6,6 +6,25 @@
 > in the pull requests of this repository; the first one imports upstream unmodified except
 > for the module path.
 
+### What this fork adds
+
+* **`clipPath`** ([SVG 1.1 §14.3](https://www.w3.org/TR/SVG11/masking.html#ClippingPaths), CSS Masking §6):
+  the `clip-path` property on any element or group, `<clipPath>` with shapes, `<path>` and
+  `<use>`, `clipPathUnits` (`userSpaceOnUse`, `objectBoundingBox`), a `transform` on the
+  clipPath, `clip-rule` (`nonzero`, `evenodd`), `clip-path` on a clipPath (intersection) and on
+  its children (clipped before the union), ancestors' clips intersecting, anti-aliased edges.
+  A clip is rasterised into an 8-bit coverage mask and multiplies the alpha of what is drawn
+  under it; a drawing without `clipPath` runs the code it always did. A reference that does not
+  resolve, or is circular, is ignored; an empty clip clips everything; a mask larger than
+  16 million pixels is not applied. A `<clipPath>` is never drawn, wherever it stands.
+  Checked against Chrome on synthetic cases (all within 0.5% of pixels) and on Twemoji.
+* **Arc commands with several parameter sets** (`a10 10 0 0 1 5 5 8 8 0 0 1 3 3`): each set is
+  its own arc. Upstream reused the first set's parameters, which drew visibly wrong shapes
+  (Twemoji's 🪇, 🏔 ...).
+
+Not changed: `fill-rule` is still ignored for fills (rasterx's scanner has one winding rule);
+`clip-rule` is honoured because clips use their own rasteriser.
+
 oksvg is a rasterizer for a partial implementation of the SVG2.0 specification in golang.
 
 Although many SVG elements will not be read by oksvg, it is good enough to faithfully produce thousands, but certainly not all, SVG icons available both for free and commercially. A list of valid and invalid elements is in the doc folder.

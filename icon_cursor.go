@@ -25,6 +25,7 @@ type IconCursor struct {
 	grad                                                 *rasterx.Gradient
 	inTitleText, inDescText, inGrad, inDefs, inDefsStyle bool
 	currentDef                                           []definition
+	clip                                                 *clipBuild // the <clipPath> being read, if any
 }
 
 // ReadGradURL reads an SVG format gradient url
@@ -88,12 +89,19 @@ func (c *IconCursor) PushStyle(attrs []xml.Attr) error {
 	}
 	// Make a copy of the top style
 	curStyle := c.StyleStack[len(c.StyleStack)-1]
+	clipVal := ""
 	for _, pair := range pairs {
 		kv := strings.Split(pair, ":")
 		if len(kv) >= 2 {
 			k := strings.ToLower(kv[0])
 			k = strings.TrimSpace(k)
 			v := strings.TrimSpace(kv[1])
+			if k == "clip-path" {
+				// Read once every attribute is in: the clip's user space
+				// includes this element's transform, wherever it was written.
+				clipVal = v
+				continue
+			}
 			err := c.readStyleAttr(&curStyle, k, v)
 			if err != nil {
 				return err
@@ -101,6 +109,9 @@ func (c *IconCursor) PushStyle(attrs []xml.Attr) error {
 		}
 	}
 	c.adaptClasses(&curStyle, className)
+	if clipVal != "" {
+		c.addClip(&curStyle, clipVal)
+	}
 	c.StyleStack = append(c.StyleStack, curStyle) // Push style onto stack
 	return nil
 }
@@ -320,6 +331,9 @@ func (c *IconCursor) readStyleAttr(curStyle *PathStyle, k, v string) error {
 }
 
 func (c *IconCursor) readStartElement(se xml.StartElement) (err error) {
+	if c.clipElement(se) {
+		return nil
+	}
 	var skipDef bool
 	if se.Name.Local == "radialGradient" || se.Name.Local == "linearGradient" || c.inGrad {
 		skipDef = true
@@ -363,8 +377,9 @@ func (c *IconCursor) readStartElement(se xml.StartElement) (err error) {
 		//The cursor parsed a path from the xml element
 		pathCopy := make(rasterx.Path, len(c.Path))
 		copy(pathCopy, c.Path)
-		c.icon.SVGPaths = append(c.icon.SVGPaths,
-			SvgPath{c.StyleStack[len(c.StyleStack)-1], pathCopy})
+		sp := SvgPath{c.StyleStack[len(c.StyleStack)-1], pathCopy}
+		noteBounds(sp.clips, sp.Path, sp.mAdder.M)
+		c.icon.SVGPaths = append(c.icon.SVGPaths, sp)
 		c.Path = c.Path[:0]
 	}
 	return
