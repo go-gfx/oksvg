@@ -201,6 +201,14 @@ func (c *IconCursor) parseTransform(v string) (rasterx.Matrix2D, error) {
 
 func (c *IconCursor) readStyleAttr(curStyle *PathStyle, k, v string) error {
 	switch k {
+	case "fill-rule":
+		// SVG 1.1 11.3: nonzero (the initial value) or evenodd, inherited.
+		switch v {
+		case "evenodd":
+			curStyle.UseNonZeroWinding = false
+		case "nonzero":
+			curStyle.UseNonZeroWinding = true
+		}
 	case "fill":
 		gradient, ok := c.ReadGradURL(v, curStyle.fillerColor)
 		if ok {
