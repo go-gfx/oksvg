@@ -64,6 +64,9 @@ func ReadIconStream(stream io.Reader, errMode ...ErrorMode) (*SvgIcon, error) {
 		case xml.EndElement:
 			// pop style
 			cursor.StyleStack = cursor.StyleStack[:len(cursor.StyleStack)-1]
+			if cursor.clipEnd(se.Name.Local) {
+				continue
+			}
 			switch se.Name.Local {
 			case "g":
 				if cursor.inDefs {

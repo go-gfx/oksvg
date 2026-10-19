@@ -28,6 +28,18 @@ func (svgp *SvgPath) DrawTransformed(r *rasterx.Dasher, opacity float64, t raste
 	m := svgp.mAdder.M
 	svgp.mAdder.M = t.Mult(m)
 	defer func() { svgp.mAdder.M = m }() // Restore untransformed matrix
+	masks, clippedAway := svgp.clipMasks(r, t)
+	if clippedAway {
+		return
+	}
+	// withMask scales a colour's alpha by the clips in force (clipPath): a
+	// path with none pays one length test.
+	withMask := func(clr interface{}) interface{} {
+		if len(masks) == 0 {
+			return clr
+		}
+		return clipColor(clr, masks)
+	}
 	if svgp.fillerColor != nil {
 		r.Clear()
 		rf := &r.Filler
@@ -37,7 +49,7 @@ func (svgp *SvgPath) DrawTransformed(r *rasterx.Dasher, opacity float64, t raste
 
 		switch fillerColor := svgp.fillerColor.(type) {
 		case color.Color:
-			rf.SetColor(rasterx.ApplyOpacity(fillerColor, svgp.FillOpacity*opacity))
+			rf.SetColor(withMask(rasterx.ApplyOpacity(fillerColor, svgp.FillOpacity*opacity)))
 		case rasterx.Gradient:
 			if fillerColor.Units == rasterx.ObjectBoundingBox {
 				fRect := rf.Scanner.GetPathExtent()
@@ -46,7 +58,7 @@ func (svgp *SvgPath) DrawTransformed(r *rasterx.Dasher, opacity float64, t raste
 				fillerColor.Bounds.X, fillerColor.Bounds.Y = mnx, mny
 				fillerColor.Bounds.W, fillerColor.Bounds.H = mxx-mnx, mxy-mny
 			}
-			rf.SetColor(fillerColor.GetColorFunction(svgp.FillOpacity * opacity))
+			rf.SetColor(withMask(fillerColor.GetColorFunction(svgp.FillOpacity * opacity)))
 		}
 		rf.Draw()
 		// default is true
@@ -73,7 +85,7 @@ func (svgp *SvgPath) DrawTransformed(r *rasterx.Dasher, opacity float64, t raste
 		svgp.Path.AddTo(&svgp.mAdder)
 		switch linerColor := svgp.linerColor.(type) {
 		case color.Color:
-			r.SetColor(rasterx.ApplyOpacity(linerColor, svgp.LineOpacity*opacity))
+			r.SetColor(withMask(rasterx.ApplyOpacity(linerColor, svgp.LineOpacity*opacity)))
 		case rasterx.Gradient:
 			if linerColor.Units == rasterx.ObjectBoundingBox {
 				fRect := r.Scanner.GetPathExtent()
@@ -82,10 +94,33 @@ func (svgp *SvgPath) DrawTransformed(r *rasterx.Dasher, opacity float64, t raste
 				linerColor.Bounds.X, linerColor.Bounds.Y = mnx, mny
 				linerColor.Bounds.W, linerColor.Bounds.H = mxx-mnx, mxy-mny
 			}
-			r.SetColor(linerColor.GetColorFunction(svgp.LineOpacity * opacity))
+			r.SetColor(withMask(linerColor.GetColorFunction(svgp.LineOpacity * opacity)))
 		}
 		r.Draw()
 	}
+}
+
+// clipMasks resolves the clip-path properties in force on the path to masks
+// under the icon transform t. clippedAway reports a clip that keeps nothing:
+// the path is not drawn. A clip that cannot be applied (the reference does not
+// name a clipPath, is circular, or its mask would pass maxMaskPixels) is
+// skipped, as if the property were absent.
+func (svgp *SvgPath) clipMasks(r *rasterx.Dasher, t rasterx.Matrix2D) (masks []*maskBuf, clippedAway bool) {
+	if len(svgp.clips) == 0 {
+		return nil, false
+	}
+	limit := limitFor(r)
+	for _, cu := range svgp.clips {
+		m := cu.mask(t, limit)
+		switch {
+		case m == nil:
+		case m.empty():
+			return nil, true
+		default:
+			masks = append(masks, m)
+		}
+	}
+	return masks, false
 }
 
 // GetFillColor returns the fill color of the SvgPath if one is defined and otherwise returns colornames.Black
