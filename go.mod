@@ -1,11 +1,14 @@
 module github.com/go-gfx/oksvg
 
-go 1.17
+go 1.26.0
 
 require (
-	github.com/srwiley/rasterx v0.0.0-20210519020934-456a8d69b780
-	golang.org/x/image v0.0.0-20211028202545-6944b10bf410
-	golang.org/x/net v0.0.0-20211118161319-6a13c67c3ce4
+	github.com/srwiley/rasterx v0.0.0-20220730225603-2ab79fcdd4ef
+	golang.org/x/image v0.47.0
+	golang.org/x/net v0.61.0
 )
 
-require golang.org/x/text v0.3.6 // indirect
+require (
+	golang.org/x/sys v0.49.0 // indirect
+	golang.org/x/text v0.43.0 // indirect
+)
