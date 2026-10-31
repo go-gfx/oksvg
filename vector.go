@@ -129,10 +129,14 @@ func (sh *Shape) setPaint(paint interface{}, opacity float64, m rasterx.Matrix2D
 		sh.Color = rasterx.ApplyOpacity(c, opacity)
 		return true
 	case rasterx.Gradient:
-		g, ok := vectorGradient(c, opacity, m, pathBounds(sh.Path, m))
-		if g == nil {
+		if len(c.Stops) == 0 {
 			// no stops: as Draw, which paints black (one stop: its colour)
 			sh.Color = rasterx.ApplyOpacity(color.Black, opacity)
+			return true
+		}
+		g, ok := vectorGradient(c, opacity, m, pathBounds(sh.Path, m))
+		if g == nil {
+			sh.Path = nil // a bounding box with no area: not painted
 			return ok
 		}
 		if len(g.Stops) == 1 {
@@ -148,9 +152,6 @@ func (sh *Shape) setPaint(paint interface{}, opacity float64, m rasterx.Matrix2D
 // vectorGradient maps a gradient to viewBox units. box is the bounding box,
 // in the element's user space, of the shape it fills (objectBoundingBox).
 func vectorGradient(g rasterx.Gradient, opacity float64, m rasterx.Matrix2D, box [4]float64) (*VectorGradient, bool) {
-	if len(g.Stops) == 0 {
-		return nil, true
-	}
 	exact := g.Spread == rasterx.PadSpread
 	stops := append([]rasterx.GradStop(nil), g.Stops...)
 	sort.SliceStable(stops, func(i, j int) bool { return stops[i].Offset < stops[j].Offset })
@@ -169,30 +170,41 @@ func vectorGradient(g rasterx.Gradient, opacity float64, m rasterx.Matrix2D, box
 	if gm == (rasterx.Matrix2D{}) {
 		gm = rasterx.Identity
 	}
-	var toUser rasterx.Matrix2D
+	// The points are mapped to viewBox units by m·base·gm, base being the
+	// bounding box (objectBoundingBox) or the identity. The gradient's
+	// geometry around them (the iso-lines perpendicular to the axis, the
+	// circle) is in the space rasterx computes it in: the device, through
+	// the gradientTransform conjugated by the box (translate(box)
+	// scale(box) Matrix scale(1/box) translate(-box)), so its shape is
+	// kept exactly when m·conj is a similarity (axis-aligned for a radial
+	// one).
+	base := rasterx.Identity
+	sx, sy := 1.0, 1.0
 	if g.Units == rasterx.ObjectBoundingBox {
 		x, y, w, h := box[0], box[1], box[2]-box[0], box[3]-box[1]
 		if !(w > 0) || !(h > 0) {
-			return v, exact
+			// SVG 1.1 §13.2.2: such an element is not painted
+			return nil, exact
 		}
-		toUser = rasterx.Identity.Translate(x, y).Scale(w, h).Mult(gm)
-	} else {
-		toUser = gm
+		base = rasterx.Identity.Translate(x, y).Scale(w, h)
+		sx, sy = w, h
 	}
-	full := m.Mult(toUser)
+	conj := base.Mult(gm).Mult(base.Invert())
+	shape := m.Mult(conj)
+	full := m.Mult(base).Mult(gm)
 	if g.IsRadial {
 		cx, cy, fx, fy, r := g.Points[0], g.Points[1], g.Points[2], g.Points[3], g.Points[4]
 		if cx != fx || cy != fy {
 			exact = false // a focal point: no form here
 		}
-		if math.Abs(full.B) > 1e-9 || math.Abs(full.C) > 1e-9 {
+		if math.Abs(shape.B) > 1e-9 || math.Abs(shape.C) > 1e-9 {
 			exact = false // rotated or skewed: not an axis-aligned ellipse
 		}
 		v.CX, v.CY = full.Transform(cx, cy)
-		v.RX, v.RY = math.Abs(full.A*r), math.Abs(full.D*r)
+		v.RX, v.RY = math.Abs(shape.A*r*sx), math.Abs(shape.D*r*sy)
 		return v, exact
 	}
-	if !similarity(full) {
+	if !similarity(shape) {
 		exact = false // a skew makes the iso-lines oblique to the axis
 	}
 	v.X1, v.Y1 = full.Transform(g.Points[0], g.Points[1])
@@ -265,12 +277,19 @@ func transformPath(p rasterx.Path, m rasterx.Matrix2D) []PathOp {
 	return r.ops
 }
 
-// outlineScanner is a rasterx.Scanner that keeps the polygons it is given
-// (a stroke's outline, as the stroker emits it) instead of filling them.
+// outlineScanner is a rasterx.Scanner that keeps the edges it is given (a
+// stroke's outline, as the stroker emits it) instead of filling them.
+//
+// The stroker emits an outline as open pieces, one side of a segment, the
+// other side, a cap, a join, that close only together: the scanner adds up
+// their edges' windings, which needs no piece to be closed. A writer's fill
+// closes every subpath on its own, so the pieces are stitched back into
+// closed loops, each piece followed by the one that starts where it ends
+// (the stroker joins them at the very same fixed-point coordinates).
 type outlineScanner struct {
-	inv  float64 // back to viewBox units
-	ops  []PathOp
-	open bool
+	inv    float64 // back to viewBox units
+	pieces [][]fixed.Point26_6
+	ops    []PathOp
 }
 
 func (s *outlineScanner) pt(p fixed.Point26_6) [2]float64 {
@@ -278,22 +297,57 @@ func (s *outlineScanner) pt(p fixed.Point26_6) [2]float64 {
 }
 
 func (s *outlineScanner) Start(a fixed.Point26_6) {
-	if s.open {
-		s.ops = append(s.ops, PathOp{Op: 'Z'})
-	}
-	s.ops = append(s.ops, PathOp{Op: 'M', Pts: [3][2]float64{s.pt(a)}})
-	s.open = true
+	s.pieces = append(s.pieces, []fixed.Point26_6{a})
 }
 
 func (s *outlineScanner) Line(b fixed.Point26_6) {
-	s.ops = append(s.ops, PathOp{Op: 'L', Pts: [3][2]float64{s.pt(b)}})
+	if len(s.pieces) == 0 {
+		s.Start(b)
+		return
+	}
+	last := &s.pieces[len(s.pieces)-1]
+	*last = append(*last, b)
 }
 
 func (s *outlineScanner) Draw() {
-	if s.open {
-		s.ops = append(s.ops, PathOp{Op: 'Z'})
-		s.open = false
+	used := make([]bool, len(s.pieces))
+	starts := map[fixed.Point26_6][]int{}
+	for i, p := range s.pieces {
+		if len(p) < 2 {
+			used[i] = true // a lone point draws nothing
+			continue
+		}
+		starts[p[0]] = append(starts[p[0]], i)
 	}
+	next := func(at fixed.Point26_6) int {
+		for _, j := range starts[at] {
+			if !used[j] {
+				return j
+			}
+		}
+		return -1
+	}
+	for i := range s.pieces {
+		if used[i] {
+			continue
+		}
+		used[i] = true
+		loop := append([]fixed.Point26_6(nil), s.pieces[i]...)
+		for loop[len(loop)-1] != loop[0] {
+			j := next(loop[len(loop)-1])
+			if j < 0 {
+				break // an open end: the fill closes it, as the scanner would
+			}
+			used[j] = true
+			loop = append(loop, s.pieces[j][1:]...)
+		}
+		s.ops = append(s.ops, PathOp{Op: 'M', Pts: [3][2]float64{s.pt(loop[0])}})
+		for _, q := range loop[1:] {
+			s.ops = append(s.ops, PathOp{Op: 'L', Pts: [3][2]float64{s.pt(q)}})
+		}
+		s.ops = append(s.ops, PathOp{Op: 'Z'})
+	}
+	s.pieces = nil
 }
 
 func (s *outlineScanner) GetPathExtent() fixed.Rectangle26_6 { return fixed.Rectangle26_6{} }
@@ -308,7 +362,7 @@ func (s *outlineScanner) SetClip(image.Rectangle)            {}
 // unit.
 func (p *SvgPath) strokeOutline(k float64) []PathOp {
 	sc := &outlineScanner{inv: 1 / k}
-	d := rasterx.NewDasher(1, 1, sc)
+	d := rasterx.NewDasher(4*strokeUnits, 4*strokeUnits, sc)
 	lineGap, lineCap := p.LineGap, p.LineCap
 	if lineGap == nil {
 		lineGap = DefaultStyle.LineGap

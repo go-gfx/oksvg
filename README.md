@@ -28,6 +28,20 @@
 * **Arc flags without separators** (`A9.564 9.564 0 0110 4.844`: flags 0 and 1, then x = 10; SVG
   1.1 §8.3.9). Upstream read `0110` as one number, which dropped the rest of the path: GitHub's
   octocat drew as a crescent.
+* **`SvgIcon.Shapes()`: the drawing as vector shapes**, for writers that draw paths themselves
+  (PDF, DrawingML, ODF): each fill with its curves and rule, each stroke as the closed outline
+  rasterx's own stroker makes (width, caps, joins, miter limit, dashes), solid colours and
+  linear/radial gradients resolved to user space, clip paths as one path each, opacities in the
+  alpha, all in viewBox units. It reports `exact == false` when part of the drawing has no exact
+  vector form here (a gradient whose stops change opacity, `reflect`/`repeat`, a skewed linear or
+  a focal or non-uniform radial gradient, a clipPath mixing rules or clipping its own shapes), for
+  the caller to rasterise instead. Tested by rendering the shapes back and comparing them with
+  `Draw` (≤ 1% of pixels).
+* **Strokes scale with the transform** (SVG 1.1 §7.6: lengths on a transformed element are in its
+  new user space). Upstream stroked at the untransformed width, so a 4-unit line under `scale(2)`
+  was 4 pixels wide, not 8; dashes and their offset now scale too.
+* **`scale(s)` with one number is `scale(s, s)`** (SVG 1.1 §7.6). Upstream read it as `scale(s, 0)`,
+  which flattened the element onto a line and made its strokes vanish.
 
 oksvg is a rasterizer for a partial implementation of the SVG2.0 specification in golang.
 
