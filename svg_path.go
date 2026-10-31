@@ -89,6 +89,12 @@ func (svgp *SvgPath) DrawTransformed(r *rasterx.Dasher, opacity float64, t raste
 		// determinant (exact for a uniform scale, a rotation, a reflection).
 		k := math.Sqrt(math.Abs(svgp.mAdder.M.A*svgp.mAdder.M.D - svgp.mAdder.M.B*svgp.mAdder.M.C))
 		dash := svgp.Dash
+		if !svgp.dashesBounded(svgp.mAdder.M) {
+			// more dashes than maxDashes (tiny ones along a long path): the
+			// stroker would take one step each, without end in practice;
+			// the stroke is drawn solid instead
+			dash = nil
+		}
 		if k != 1 && len(dash) > 0 {
 			dash = make([]float64, len(svgp.Dash))
 			for i, v := range svgp.Dash {

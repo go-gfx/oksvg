@@ -109,7 +109,11 @@ func (s *SvgIcon) Shapes() (shapes []Shape, exact bool) {
 			}
 		}
 		if p.linerColor != nil && p.LineWidth > 0 {
-			sh := Shape{Path: p.strokeOutline(k), Clips: clips}
+			outline, ok := p.strokeOutline(k)
+			if !ok {
+				exact = false
+			}
+			sh := Shape{Path: outline, Clips: clips}
 			if paintOK := sh.setPaint(p.linerColor, p.LineOpacity, m); !paintOK {
 				exact = false
 			}
@@ -290,14 +294,35 @@ type outlineScanner struct {
 	inv    float64 // back to viewBox units
 	pieces [][]fixed.Point26_6
 	ops    []PathOp
+	// points counts what was recorded; past maxOutlinePoints the outline is
+	// dropped (over), so that a stroke cannot grow memory without bound.
+	points int
+	over   bool
 }
+
+// maxOutlinePoints bounds one stroke's outline.
+var maxOutlinePoints = 1 << 20
 
 func (s *outlineScanner) pt(p fixed.Point26_6) [2]float64 {
 	return [2]float64{float64(p.X) / 64 * s.inv, float64(p.Y) / 64 * s.inv}
 }
 
+// room counts one more point, and reports whether there is room for it.
+func (s *outlineScanner) room() bool {
+	if s.over {
+		return false
+	}
+	if s.points++; s.points > maxOutlinePoints {
+		s.over, s.pieces = true, nil
+		return false
+	}
+	return true
+}
+
 func (s *outlineScanner) Start(a fixed.Point26_6) {
-	s.pieces = append(s.pieces, []fixed.Point26_6{a})
+	if s.room() {
+		s.pieces = append(s.pieces, []fixed.Point26_6{a})
+	}
 }
 
 func (s *outlineScanner) Line(b fixed.Point26_6) {
@@ -305,8 +330,10 @@ func (s *outlineScanner) Line(b fixed.Point26_6) {
 		s.Start(b)
 		return
 	}
-	last := &s.pieces[len(s.pieces)-1]
-	*last = append(*last, b)
+	if s.room() {
+		last := &s.pieces[len(s.pieces)-1]
+		*last = append(*last, b)
+	}
 }
 
 func (s *outlineScanner) Draw() {
@@ -359,8 +386,12 @@ func (s *outlineScanner) SetClip(image.Rectangle)            {}
 
 // strokeOutline is the outline of the path's stroke in viewBox units, made
 // by rasterx's stroker as Draw makes it, at k fixed-point units per viewBox
-// unit.
-func (p *SvgPath) strokeOutline(k float64) []PathOp {
+// unit. ok is false when the outline is past the bounds (maxDashes,
+// maxOutlinePoints): there is then no outline.
+func (p *SvgPath) strokeOutline(k float64) (ops []PathOp, ok bool) {
+	if !p.dashesBounded(p.mAdder.M) {
+		return nil, false
+	}
 	sc := &outlineScanner{inv: 1 / k}
 	d := rasterx.NewDasher(4*strokeUnits, 4*strokeUnits, sc)
 	lineGap, lineCap := p.LineGap, p.LineCap
@@ -388,7 +419,44 @@ func (p *SvgPath) strokeOutline(k float64) []PathOp {
 	ma := rasterx.MatrixAdder{Adder: d, M: rasterx.Identity.Scale(k, k).Mult(p.mAdder.M)}
 	p.Path.AddTo(&ma)
 	d.Draw()
-	return sc.ops
+	if sc.over {
+		return nil, false
+	}
+	return sc.ops, true
+}
+
+// maxDashes bounds the dashes of one stroke: a dash array of tiny dashes
+// along a long path would otherwise take the stroker one step per dash
+// without end (a hundredth of a unit along a million units is 10¹⁰).
+var maxDashes = 1 << 16
+
+// dashesBounded reports whether the path's dashes under m number at most
+// maxDashes, counted along its control polygon, which is at least as long
+// as the path. A path without dashes is bounded.
+func (p *SvgPath) dashesBounded(m rasterx.Matrix2D) bool {
+	if len(p.Dash) == 0 {
+		return true
+	}
+	period := 0.0
+	for _, v := range p.Dash {
+		period += math.Abs(v)
+	}
+	period *= math.Sqrt(math.Abs(m.A*m.D - m.B*m.C))
+	length := 0.0
+	var cur [2]float64
+	for _, op := range transformPath(p.Path, m) {
+		n := map[byte]int{'M': 1, 'L': 1, 'Q': 2, 'C': 3}[op.Op]
+		for i, q := range op.Pts[:n] {
+			if !(op.Op == 'M' && i == 0) {
+				length += math.Hypot(q[0]-cur[0], q[1]-cur[1])
+			}
+			cur = q
+		}
+	}
+	if length == 0 {
+		return true
+	}
+	return period > 0 && length/period <= float64(maxDashes)
 }
 
 // vectorClips resolves the clip-path properties in force on the path to clip

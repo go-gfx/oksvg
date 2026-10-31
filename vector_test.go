@@ -248,6 +248,64 @@ func TestStrokeOutlineIsClosedLoops(t *testing.T) {
 	}
 }
 
+// A stroke of more dashes than maxDashes (a hostile dash array: a
+// thousandth of a unit along ten thousand units is ten million dashes) has
+// no outline, and Draw strokes it solid rather than step through each dash;
+// both return at once. So does an outline past maxOutlinePoints; and a dash
+// array summing to zero is solid (SVG 1.1 §11.4).
+func TestStrokeBounds(t *testing.T) {
+	hostile := head + `<path d="M0 50 H10000" fill="none" stroke="#000" stroke-width="4" stroke-dasharray="0.001"/><rect width="10" height="10" fill="#f00"/></svg>`
+	shapes, exact := shapesOf(t, hostile)
+	if exact || len(shapes) != 1 || shapes[0].Color != (color.NRGBA{R: 255, A: 255}) {
+		t.Errorf("exact %v, shapes %v: want inexact and only the square", exact, shapes)
+	}
+	if img := render(t, hostile, 100, 100); alpha(img, 50, 50) < 200 {
+		t.Error("the hostile stroke is not drawn solid")
+	}
+	zero := head + `<path d="M0 50 H100" stroke="#000" stroke-width="4" stroke-dasharray="0 0"/></svg>`
+	if img := render(t, zero, 100, 100); alpha(img, 50, 50) < 200 || alpha(img, 20, 50) < 200 {
+		t.Error("a zero dash array is not solid")
+	}
+	if _, exact := shapesOf(t, zero); exact {
+		t.Error("a zero dash array has an exact outline")
+	}
+	// a short dashed line is within the bounds; a point-length path too
+	if _, exact := shapesOf(t, head+`<path d="M0 50 H100" stroke="#000" stroke-dasharray="1"/><path d="M5 5 L5 5" stroke="#000" stroke-dasharray="1"/></svg>`); !exact {
+		t.Error("a short dashed line is not exact")
+	}
+	old := maxOutlinePoints
+	maxOutlinePoints = 8
+	defer func() { maxOutlinePoints = old }()
+	if _, exact := shapesOf(t, head+`<circle cx="50" cy="50" r="40" fill="none" stroke="#000" stroke-width="3"/></svg>`); exact {
+		t.Error("an outline past maxOutlinePoints is exact")
+	}
+}
+
+// FuzzShapes: whatever the document, Shapes returns (a rasterx panic on
+// degenerate geometry aside, which the engine recovers from), within the
+// bounds: no hang on dashes, finite coordinates only where the input's are.
+func FuzzShapes(f *testing.F) {
+	for _, s := range []string{
+		head + `<path d="M0 50 H10000" fill="none" stroke="#000" stroke-dasharray="0.001"/></svg>`,
+		head + `<g transform="scale(1e-9)"><circle cx="5" cy="5" r="4" stroke="#000" stroke-dasharray="1e-12 1e-12"/></g></svg>`,
+		head + `<defs><linearGradient id="g" gradientTransform="rotate(30)"><stop offset="0"/><stop offset="2" stop-color="#fff"/></linearGradient></defs><rect width="9" height="9" fill="url(#g)" stroke="url(#g)"/></svg>`,
+		head + `<path d="M0 0 Q 1e300 1e300 5 5 C 1 2 3 4 5 6 Z" stroke="#000" stroke-width="1e30"/></svg>`,
+	} {
+		f.Add(s)
+	}
+	f.Fuzz(func(t *testing.T, s string) {
+		if len(s) > 1<<14 {
+			return
+		}
+		icon, err := ReadIconStream(strings.NewReader(s))
+		if err != nil || icon == nil || icon.ViewBox.W <= 0 || icon.ViewBox.H <= 0 {
+			return
+		}
+		defer func() { _ = recover() }()
+		icon.Shapes()
+	})
+}
+
 // What has no exact form says so; the rest of the drawing is still there.
 func TestShapesNotExact(t *testing.T) {
 	for name, body := range map[string]string{

@@ -40,6 +40,11 @@
 * **Strokes scale with the transform** (SVG 1.1 §7.6: lengths on a transformed element are in its
   new user space). Upstream stroked at the untransformed width, so a 4-unit line under `scale(2)`
   was 4 pixels wide, not 8; dashes and their offset now scale too.
+* **Bounded strokes.** A stroke of more than 65 536 dashes would take the stroker one step per
+  dash, for example a dash array of tiny dashes along a long path, which on hostile input is
+  10¹⁰ steps. `Draw` strokes such a stroke solid and `Shapes` reports it inexact. A stroke
+  outline past 2²⁰ points is dropped from `Shapes`, again as inexact. A dash array summing to
+  zero is solid (SVG 1.1 §11.4). `FuzzShapes` checks that `Shapes` always returns.
 * **`scale(s)` with one number is `scale(s, s)`** (SVG 1.1 §7.6). Upstream read it as `scale(s, 0)`,
   which flattened the element onto a line and made its strokes vanish.
 
