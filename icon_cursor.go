@@ -151,7 +151,9 @@ func (c *IconCursor) readTransformAttr(m1 rasterx.Matrix2D, k string) (rasterx.M
 		}
 	case "scale":
 		if ln == 1 {
-			m1 = m1.Scale(c.points[0], 0)
+			// SVG 1.1 §7.6: scale(sx) is scale(sx sx); it was scale(sx 0),
+			// which flattened the drawing onto a line
+			m1 = m1.Scale(c.points[0], c.points[0])
 		} else if ln == 2 {
 			m1 = m1.Scale(c.points[0], c.points[1])
 		} else {

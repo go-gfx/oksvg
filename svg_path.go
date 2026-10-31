@@ -7,6 +7,7 @@ package oksvg
 
 import (
 	"image/color"
+	"math"
 
 	"github.com/srwiley/rasterx"
 	"golang.org/x/image/math/fixed"
@@ -81,9 +82,22 @@ func (svgp *SvgPath) DrawTransformed(r *rasterx.Dasher, opacity float64, t raste
 		if svgp.LeadLineCap != nil {
 			leadLineCap = svgp.LeadLineCap
 		}
-		r.SetStroke(fixed.Int26_6(svgp.LineWidth*64),
+		// The stroker works in device space, on the transformed path: the
+		// width, the dashes and their offset, given in the element's user
+		// units, scale with the transform as the path does (SVG 1.1 §11.4:
+		// they are lengths in the user space), by the square root of its
+		// determinant (exact for a uniform scale, a rotation, a reflection).
+		k := math.Sqrt(math.Abs(svgp.mAdder.M.A*svgp.mAdder.M.D - svgp.mAdder.M.B*svgp.mAdder.M.C))
+		dash := svgp.Dash
+		if k != 1 && len(dash) > 0 {
+			dash = make([]float64, len(svgp.Dash))
+			for i, v := range svgp.Dash {
+				dash[i] = v * k
+			}
+		}
+		r.SetStroke(fixed.Int26_6(svgp.LineWidth*k*64),
 			fixed.Int26_6(svgp.MiterLimit*64), leadLineCap, lineCap,
-			lineGap, svgp.LineJoin, svgp.Dash, svgp.DashOffset)
+			lineGap, svgp.LineJoin, dash, svgp.DashOffset*k)
 		svgp.Path.AddTo(&svgp.mAdder)
 		switch linerColor := svgp.linerColor.(type) {
 		case color.Color:
