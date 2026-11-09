@@ -17,6 +17,11 @@ import (
 type SvgPath struct {
 	PathStyle
 	Path rasterx.Path
+	// Keys are the keys of the element the path was read from and of its
+	// ancestors, outermost first: an element's key is its position among the
+	// document's elements in document order, from 0 (the root svg). A path a
+	// use element draws has the use's keys.
+	Keys []int
 }
 
 // Draw the compiled SvgPath into the Dasher.

@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("<style>@keyframes spin{from{trAnsform:000000(}}.s{AnimAtion:spin 1s}<A class=\"s\" >")

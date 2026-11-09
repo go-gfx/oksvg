@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("<svg viewBox=\"0 0 9 9\"><style>@keyframes k{from{transform:rotate(1deg}to{transform:x(}}.a{animation:k 1s}</style><g class=\"a\"/></svg>")

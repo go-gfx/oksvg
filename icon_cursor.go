@@ -26,6 +26,33 @@ type IconCursor struct {
 	inTitleText, inDescText, inGrad, inDefs, inDefsStyle bool
 	currentDef                                           []definition
 	clip                                                 *clipBuild // the <clipPath> being read, if any
+	keys                                                 []int      // element keys from the root to the element being read
+	nextKey                                              int
+	keysCopy                                             []int // keys, as the paths read since the last change hold it
+}
+
+// pushKey gives the element being opened its key: its position among the
+// document's elements, in document order, from 0.
+func (c *IconCursor) pushKey() {
+	c.keys = append(c.keys, c.nextKey)
+	c.nextKey++
+	c.keysCopy = nil
+}
+
+func (c *IconCursor) popKey() {
+	if len(c.keys) > 0 {
+		c.keys = c.keys[:len(c.keys)-1]
+	}
+	c.keysCopy = nil
+}
+
+// pathKeys is the chain of element keys the path being added belongs to: the
+// element it was read from and its ancestors.
+func (c *IconCursor) pathKeys() []int {
+	if c.keysCopy == nil {
+		c.keysCopy = append([]int{}, c.keys...)
+	}
+	return c.keysCopy
 }
 
 // ReadGradURL reads an SVG format gradient url
@@ -387,7 +414,7 @@ func (c *IconCursor) readStartElement(se xml.StartElement) (err error) {
 		//The cursor parsed a path from the xml element
 		pathCopy := make(rasterx.Path, len(c.Path))
 		copy(pathCopy, c.Path)
-		sp := SvgPath{c.StyleStack[len(c.StyleStack)-1], pathCopy}
+		sp := SvgPath{c.StyleStack[len(c.StyleStack)-1], pathCopy, c.pathKeys()}
 		noteBounds(sp.clips, sp.Path, sp.mAdder.M)
 		c.icon.SVGPaths = append(c.icon.SVGPaths, sp)
 		c.Path = c.Path[:0]
