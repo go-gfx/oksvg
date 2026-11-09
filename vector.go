@@ -52,6 +52,9 @@ type Shape struct {
 	// Clips are the clip paths in force; the shape shows where it is inside
 	// every one.
 	Clips []ClipPath
+	// Keys are the element keys of the SvgPath the shape was made from (see
+	// SvgPath.Keys).
+	Keys []int
 }
 
 // ClipPath is one clip path, in viewBox units.
@@ -100,7 +103,7 @@ func (s *SvgIcon) Shapes() (shapes []Shape, exact bool) {
 		}
 		m := p.mAdder.M
 		if p.fillerColor != nil {
-			sh := Shape{Path: transformPath(p.Path, m), EvenOdd: !p.UseNonZeroWinding, Clips: clips}
+			sh := Shape{Path: transformPath(p.Path, m), EvenOdd: !p.UseNonZeroWinding, Clips: clips, Keys: p.Keys}
 			if paintOK := sh.setPaint(p.fillerColor, p.FillOpacity, m); !paintOK {
 				exact = false
 			}
@@ -113,7 +116,7 @@ func (s *SvgIcon) Shapes() (shapes []Shape, exact bool) {
 			if !ok {
 				exact = false
 			}
-			sh := Shape{Path: outline, Clips: clips}
+			sh := Shape{Path: outline, Clips: clips, Keys: p.Keys}
 			if paintOK := sh.setPaint(p.linerColor, p.LineOpacity, m); !paintOK {
 				exact = false
 			}

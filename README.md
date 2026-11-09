@@ -75,6 +75,14 @@ Licensed by [Creative Commons 3.0](http://creativecommons.org/licenses/by/3.0/) 
 
 ![bus](doc/school-bus.png)
 
+### Element keys and animations (`svganim`)
+
+Every path oksvg reads carries `Keys` (and every `Shape` made from it): the position, in document order from 0, of the element it came from and of each ancestor. The package `github.com/go-gfx/oksvg/svganim` uses the same keys for the animation model of a document:
+
+- `svganim.Parse` reads SMIL (`animate`, `animateTransform`, `animateMotion`, `animateColor`, `set`, with `begin` clocks and syncbases, `dur`, `repeatCount`, `repeatDur`, `end`, `fill`, `calcMode` linear / discrete / paced / spline, `keyTimes`, `keySplines`, `additive`, `mpath`) and CSS (`@keyframes` with the `animation-*` properties, `transform-origin`, `transform-box`) into per-element `Track`s. Events (`begin="click"`) and what it does not model are reported in `Warnings`, never dropped silently.
+- `Animations.Eval(t)` is the state of every animated element at time `t`; `Apply` writes the document at `t` with the animations taken out (element keys unchanged); `Span` and `FrameTimes` choose the frames; `Rasterize` and `GIF` draw and encode them.
+- Every read is bounded by `Limits` (input bytes, elements, animations, keyframes, duration, frames); the parser is fuzzed (`FuzzParse`, `FuzzValue`, corpus in `svganim/testdata/fuzz`).
+
 ### Non-standard library dependencies
 oksvg requires the following imports which are not included in the go standard library:
 

@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("<svg viewBox=\"0 0 9 9\"><rect id=\"a\"><animate id=\"x\" attributeName=\"x\" values=\"0;1\" keyTimes=\"0;1\" dur=\"1e308s\" begin=\"y.end+1e999s\" repeatDur=\"indefinite\" repeatCount=\"1e308\"/><animate id=\"y\" attributeName=\"y\" from=\"0\" to=\"1\" dur=\"1ms\" begin=\"x.begin\" end=\"x.end\"/><animateMotion path=\"M0 0A1e308 1e308 0 1 1 1 1\" dur=\"1s\" keyPoints=\"0;1\" keyTimes=\"0;1\"/></rect></svg>")

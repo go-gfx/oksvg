@@ -1,0 +1,2 @@
+go test fuzz v1
+string("M1e999-.5.5L--1 hsl(,,) rotate(1e-999turn) 0x10 1e+")
